@@ -1,0 +1,164 @@
+# Example Ingress with TLS Certificate from Azure Key Vault
+# Based on the ixm-bot-ingress.yml pattern
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ixm-api-ingress
+  namespace: dev
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - "api.dev.revenue.ai"
+    secretName: wildcard-tls-from-kv
+  rules:
+  - host: api.dev.revenue.ai
+    http:
+      paths:
+      - path: /dev/ixm-api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: ixm-api-service
+            port:
+              number: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ixm-app-ingress
+  namespace: dev
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - "app.dev.revenue.ai"
+    secretName: wildcard-tls-from-kv
+  rules:
+  - host: app.dev.revenue.ai
+    http:
+      paths:
+      - path: /dev/ixm-app(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: ixm-app-service
+            port:
+              number: 80
+
+---
+# Test Environment
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ixm-api-ingress-test
+  namespace: test
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - "api.test.revenue.ai"
+    secretName: wildcard-tls-from-kv
+  rules:
+  - host: api.test.revenue.ai
+    http:
+      paths:
+      - path: /test/ixm-api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: ixm-api-service-test
+            port:
+              number: 80
+
+---
+# Production Environment
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ixm-api-ingress-prod
+  namespace: prod
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - "api.revenue.ai"
+    secretName: wildcard-tls-from-kv
+  rules:
+  - host: api.revenue.ai
+    http:
+      paths:
+      - path: /ixm-api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: ixm-api-service-prod
+            port:
+              number: 80
+
+---
+# Example Service for API
+apiVersion: v1
+kind: Service
+metadata:
+  name: ixm-api-service
+  namespace: dev
+spec:
+  selector:
+    app: ixm-api
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+# Example Service for App
+apiVersion: v1
+kind: Service
+metadata:
+  name: ixm-app-service
+  namespace: dev
+spec:
+  selector:
+    app: ixm-app
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: ClusterIP 

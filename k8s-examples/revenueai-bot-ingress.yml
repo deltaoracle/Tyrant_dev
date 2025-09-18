@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ixm-ixm-bot-ingress
+  namespace: dev
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ixm-aks-cluster.westeurope.cloudapp.azure.com
+    http:
+      paths:
+      - path: /dev/ixm-ixm-bot(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: ixm-ixm-bot
+            port:
+              number: 80 

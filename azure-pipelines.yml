@@ -1,0 +1,297 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: terraform-pipeline-nonprod
+  - name: resource_group_name_all
+    value: 'rg-maincluster-all-weu-001'
+  - name: storage_name
+    value: 'saixmallweu001'
+  - name: location
+    value: 'West Europe'
+
+stages:
+
+- stage: BackendSetup
+  displayName: 'Setup Backend Infrastructure'
+  jobs:
+  - job: CreateBackend
+    displayName: 'Create Backend Infrastructure'
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'terraform-pipeline-nonprod'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az account set --subscription $(ARM_SUBSCRIPTION_ID)
+      displayName: 'Azure CLI Login'
+
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'terraform-pipeline-nonprod'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          # Check if resource group exists
+          if ! az group show --name "$(resource_group_name_all)" --subscription "$(ARM_SUBSCRIPTION_ID)" >/dev/null 2>&1; then
+            echo "Creating resource group $(resource_group_name_all)..."
+            az group create --name "$(resource_group_name_all)" --location "$(location)" --subscription "$(ARM_SUBSCRIPTION_ID)"
+          else
+            echo "Resource group $(resource_group_name_all) already exists"
+          fi
+          
+          # Check if storage account exists
+          if ! az storage account show --name "$(storage_name)" --resource-group "$(resource_group_name_all)" --subscription "$(ARM_SUBSCRIPTION_ID)" >/dev/null 2>&1; then
+            echo "Creating storage account $(storage_name)..."
+            az storage account create \
+              --name "$(storage_name)" \
+              --resource-group "$(resource_group_name_all)" \
+              --location "$(location)" \
+              --sku "Standard_LRS"
+          else
+            echo "Storage account $(storage_name) already exists"
+          fi
+          
+          # Check if container exists
+          if ! az storage container show --name "tfstate" --account-name "$(storage_name)" --subscription "$(ARM_SUBSCRIPTION_ID)" >/dev/null 2>&1; then
+            echo "Creating container tfstate..."
+            az storage container create \
+              --name "tfstate" \
+              --account-name "$(storage_name)" \
+              --subscription "$(ARM_SUBSCRIPTION_ID)"
+          else
+            echo "Storage container tfstate already exists"
+          fi
+      displayName: 'Create Backend Infrastructure'
+
+- stage: MainInfrastructure
+  displayName: 'Deploy Main Infrastructure'
+  dependsOn: BackendSetup
+  jobs:
+  - job: DeployMainInfra
+    displayName: 'Deploy Main Infrastructure'
+    steps:
+    - task: TerraformInstaller@0
+      inputs:
+        terraformVersion: '1.7.0'
+      displayName: 'Install Terraform'
+
+    - script: |
+        terraform init \
+          -backend-config="resource_group_name=$(resource_group_name_all)" \
+          -backend-config="storage_account_name=$(storage_name)" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=prod.terraform.tfstate" \
+          -backend-config="subscription_id=$(ARM_SUBSCRIPTION_ID)"
+      displayName: 'Terraform Init - Main Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: terraform validate
+      displayName: 'Terraform Validate - Main Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: |
+        terraform plan -var-file="terraform.tfvars" -out=tfplan -detailed-exitcode
+        PLAN_EXIT_CODE=$?
+        echo "##vso[task.setvariable variable=PLAN_EXIT_CODE]$PLAN_EXIT_CODE"
+        if [ $PLAN_EXIT_CODE -eq 0 ]; then
+          echo "No changes. Infrastructure is up-to-date."
+          exit 0
+        elif [ $PLAN_EXIT_CODE -eq 1 ]; then
+          echo "Terraform plan failed with errors."
+          exit 1
+        elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+          echo "Terraform plan completed successfully with changes to apply."
+          exit 0
+        else
+          echo "Unexpected exit code: $PLAN_EXIT_CODE"
+          exit 1
+        fi
+      displayName: 'Terraform Plan - Main Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: |
+        if [ -f "tfplan" ]; then
+          terraform apply -auto-approve tfplan
+        else
+          echo "No plan file found. Skipping apply."
+        fi
+      displayName: 'Terraform Apply - Main Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+      condition: succeeded()
+
+- stage: ChatbotInfrastructure
+  displayName: 'Deploy Chatbot Infrastructure'
+  dependsOn: MainInfrastructure
+  jobs:
+  - job: DeployChatbotInfra
+    displayName: 'Deploy Chatbot Infrastructure'
+    steps:
+    - task: TerraformInstaller@0
+      inputs:
+        terraformVersion: '1.7.0'
+      displayName: 'Install Terraform'
+
+    - script: |
+        terraform init \
+          -backend-config="resource_group_name=$(resource_group_name_all)" \
+          -backend-config="storage_account_name=$(storage_name)" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=chatbot-infrastructure.terraform.tfstate" \
+          -backend-config="subscription_id=$(ARM_SUBSCRIPTION_ID)"
+      displayName: 'Terraform Init - Chatbot Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/chatbot'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: terraform validate
+      displayName: 'Terraform Validate - Chatbot Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/chatbot'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: |
+        terraform plan -var-file="../terraform.tfvars" -out=tfplan -detailed-exitcode
+        PLAN_EXIT_CODE=$?
+        echo "##vso[task.setvariable variable=PLAN_EXIT_CODE]$PLAN_EXIT_CODE"
+        if [ $PLAN_EXIT_CODE -eq 0 ]; then
+          echo "No changes. Infrastructure is up-to-date."
+          exit 0
+        elif [ $PLAN_EXIT_CODE -eq 1 ]; then
+          echo "Terraform plan failed with errors."
+          exit 1
+        elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+          echo "Terraform plan completed successfully with changes to apply."
+          exit 0
+        else
+          echo "Unexpected exit code: $PLAN_EXIT_CODE"
+          exit 1
+        fi
+      displayName: 'Terraform Plan - Chatbot Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/chatbot'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: |
+        if [ -f "tfplan" ]; then
+          terraform apply -auto-approve tfplan
+        else
+          echo "No plan file found. Skipping apply."
+        fi
+      displayName: 'Terraform Apply - Chatbot Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/chatbot'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+      condition: succeeded()
+
+- stage: CertificatesInfrastructure
+  displayName: 'Deploy Certificates Infrastructure'
+  dependsOn: MainInfrastructure
+  jobs:
+  - job: DeployCertificatesInfra
+    displayName: 'Deploy Certificates Infrastructure'
+    steps:
+    - task: TerraformInstaller@0
+      inputs:
+        terraformVersion: '1.7.0'
+      displayName: 'Install Terraform'
+
+    - script: |
+        terraform init \
+          -backend-config="resource_group_name=$(resource_group_name_all)" \
+          -backend-config="storage_account_name=$(storage_name)" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=certificates.tfstate" \
+          -backend-config="subscription_id=$(ARM_SUBSCRIPTION_ID)"
+      displayName: 'Terraform Init - Certificates Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/certificates'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: terraform validate
+      displayName: 'Terraform Validate - Certificates Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/certificates'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: |
+        terraform plan -var-file="terraform.tfvars" -out=tfplan -detailed-exitcode
+        PLAN_EXIT_CODE=$?
+        echo "##vso[task.setvariable variable=PLAN_EXIT_CODE]$PLAN_EXIT_CODE"
+        if [ $PLAN_EXIT_CODE -eq 0 ]; then
+          echo "No changes. Infrastructure is up-to-date."
+          exit 0
+        elif [ $PLAN_EXIT_CODE -eq 1 ]; then
+          echo "Terraform plan failed with errors."
+          exit 1
+        elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+          echo "Terraform plan completed successfully with changes to apply."
+          exit 0
+        else
+          echo "Unexpected exit code: $PLAN_EXIT_CODE"
+          exit 1
+        fi
+      displayName: 'Terraform Plan - Certificates Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/certificates'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - script: |
+        if [ -f "tfplan" ]; then
+          terraform apply -auto-approve tfplan
+        else
+          echo "No plan file found. Skipping apply."
+        fi
+      displayName: 'Terraform Apply - Certificates Infrastructure'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/certificates'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+      condition: succeeded()

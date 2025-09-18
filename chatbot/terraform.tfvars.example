@@ -1,0 +1,33 @@
+# Example terraform.tfvars file for chatbot resources
+# Copy this file to terraform.tfvars and update the values as needed
+
+# Short location code for resource naming
+short_location = "weu"
+
+# Azure location for all resources (Note: Bot services are configured as Global)
+location = "West Europe"
+
+# Shared Resource Group (from main infrastructure)
+shared_resource_group_name = "rg-maincluster-all-weu-001"
+
+# Resource group name for chatbot resources
+resource_group_name = "rg-ixm-chatbot-all-weu-001"
+
+# Existing Log Analytics workspace details
+log_analytics_workspace_name = "la-ixm-all-weu-001"
+
+# Application Insights resource names
+appinsights_dev_name = "apin-ixm-chatbot-dev-weu-001"
+appinsights_test_name = "apin-ixm-chatbot-test-weu-001"
+appinsights_stage_name = "apin-ixm-chatbot-stage-weu-001"
+appinsights_prod_name = "apin-ixm-chatbot-prod-weu-001"
+
+# Azure Bot resource names
+bot_dev_name = "abot-ixm-chatbot-dev-weu-001"
+bot_stage_name = "abot-ixm-chatbot-stage-weu-001"
+bot_prod_name = "abot-ixm-chatbot-prod-weu-001"
+
+# Bot endpoint URLs - Update these with your actual bot endpoints
+chatbot_dev_endpoint = "https://your-dev-bot-endpoint.com/api/messages"
+chatbot_stage_endpoint = "https://your-stage-bot-endpoint.com/api/messages"
+chatbot_prod_endpoint = "https://your-prod-bot-endpoint.com/api/messages" 
